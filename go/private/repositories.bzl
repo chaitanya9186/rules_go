@@ -89,6 +89,13 @@ def go_rules_dependencies():
       name = "gogo_special_proto",
   )
 
+  _maybe(go_repository,
+      name = "com_github_grpc_ecosystem_grpc_gateway",
+      importpath = "github.com/grpc-ecosystem/grpc-gateway",
+      tag = "v1.3.1",  # lastest as of 2018-01-10
+      build_file_proto_mode="disable",
+  )
+
   # Only used by deprecated go_proto_library implementation
   _maybe(native.http_archive,
       name = "com_github_google_protobuf",
