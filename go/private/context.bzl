@@ -18,6 +18,7 @@ load(
     "GoSource",
     "GoAspectProviders",
     "GoStdLib",
+    "GoBuilders",
     "get_source",
 )
 load(
@@ -44,6 +45,19 @@ EXPLICIT_PATH = "explicit"
 INFERRED_PATH = "inferred"
 
 EXPORT_PATH = "export"
+
+_COMPILER_OPTIONS_BLACKLIST = {
+  "-fcolor-diagnostics": None,
+  "-Wall": None,
+  "-g0": None, # symbols are needed by Go, so keep them
+}
+
+_LINKER_OPTIONS_BLACKLIST = {
+  "-Wl,--gc-sections": None
+}
+
+def _filter_options(options, blacklist):
+  return [option for option in options if option not in blacklist]
 
 def _child_name(go, path, ext, name):
   childname = mode_string(go.mode) + "/"
@@ -73,6 +87,9 @@ def _new_args(go):
       "-goarch", go.mode.goarch,
       "-cgo=" + ("0" if go.mode.pure else "1"),
   ])
+  if len(go.tags) > 0:
+    args.add("-tags")
+    args.add(go.tags, join_with = ",")
   if go.cgo_tools:
     args.add([
       "-compiler_path", go.cgo_tools.compiler_path,
@@ -83,11 +100,16 @@ def _new_args(go):
   return args
 
 def _new_library(go, name=None, importpath=None, resolver=None, importable=True, testfilter=None, **kwargs):
+  if not importpath:
+    importpath = go.importpath
+  importmap = getattr(go._ctx.attr, "importmap", "")
+  if not importmap:
+    importmap = importpath
   return GoLibrary(
       name = go._ctx.label.name if not name else name,
       label = go._ctx.label,
-      importpath = go.importpath if not importpath else importpath,
-      importmap = getattr(go._ctx.attr, "importmap", ""),
+      importpath = importpath,
+      importmap = importmap,
       pathtype = go.pathtype if importable else EXPORT_PATH,
       resolve = resolver,
       testfilter = testfilter,
@@ -133,7 +155,7 @@ def _library_to_source(go, attr, library, coverage_instrumented):
   x_defs = source["x_defs"]
   for k,v in getattr(attr, "x_defs", {}).items():
     if "." not in k:
-      k = "{}.{}".format(library.importpath, k)
+      k = "{}.{}".format(library.importmap, k)
     x_defs[k] = v
   source["x_defs"] = x_defs
   if library.resolve:
@@ -187,18 +209,20 @@ def _get_go_binary(context_data):
   fail("Could not find go executable in go_sdk")
 
 def go_context(ctx, attr=None):
-  if "@io_bazel_rules_go//go:toolchain" in ctx.toolchains:
-    toolchain = ctx.toolchains["@io_bazel_rules_go//go:toolchain"]
-  elif "@io_bazel_rules_go//go:bootstrap_toolchain" in ctx.toolchains:
-    toolchain = ctx.toolchains["@io_bazel_rules_go//go:bootstrap_toolchain"]
-  else:
-    fail('Rule {} does not have the go toolchain available\nAdd toolchains = ["@io_bazel_rules_go//go:toolchain"] to the rule definition.'.format(ctx.label))
+  toolchain = ctx.toolchains["@io_bazel_rules_go//go:toolchain"]
 
   if not attr:
     attr = ctx.attr
 
+  builders = getattr(attr, "_builders", None)
+  if builders:
+    builders = builders[GoBuilders]
+  else:
+    builders = GoBuilders(compile=None, link=None)
+  host_only = getattr(attr, "_hostonly", False)
+
   context_data = attr._go_context_data
-  mode = get_mode(ctx, toolchain, context_data)
+  mode = get_mode(ctx, host_only, toolchain, context_data)
   root, binary = _get_go_binary(context_data)
 
   stdlib = getattr(attr, "_stdlib", None)
@@ -222,6 +246,9 @@ def go_context(ctx, attr=None):
       importpath = importpath,
       pathtype = pathtype,
       cgo_tools = context_data.cgo_tools,
+      builders = builders,
+      env = context_data.env,
+      tags = context_data.tags,
       # Action generators
       archive = toolchain.actions.archive,
       asm = toolchain.actions.asm,
@@ -245,19 +272,17 @@ def go_context(ctx, attr=None):
 def _go_context_data(ctx):
   cpp = ctx.fragments.cpp
   features = ctx.features
-  raw_compiler_options = cpp.compiler_options(features)
-  raw_linker_options = cpp.mostly_static_link_options(features, False)
-  options = (raw_compiler_options +
-      cpp.unfiltered_compiler_options(features) +
-      cpp.link_options +
-      raw_linker_options)
-  compiler_options = [o for o in raw_compiler_options if not o in [
-    "-fcolor-diagnostics",
-    "-Wall",
-  ]]
-  linker_options = [o for o in raw_linker_options if not o in [
-    "-Wl,--gc-sections",
-  ]]
+  compiler_options = _filter_options(
+    cpp.compiler_options(features) + cpp.unfiltered_compiler_options(features),
+    _COMPILER_OPTIONS_BLACKLIST)
+  linker_options = _filter_options(
+    cpp.link_options + cpp.mostly_static_link_options(features, False),
+    _LINKER_OPTIONS_BLACKLIST)
+
+  env = {}
+  tags = []
+  if "gotags" in ctx.var:
+    tags = ctx.var["gotags"].split(",")
   compiler_path, _ = cpp.ld_executable.rsplit("/", 1)
   return struct(
       strip = ctx.attr.strip,
@@ -265,13 +290,15 @@ def _go_context_data(ctx):
       package_list = ctx.file._package_list,
       sdk_files = ctx.files._sdk_files,
       sdk_tools = ctx.files._sdk_tools,
+      tags = tags,
+      env = env,
       cgo_tools = struct(
           compiler_path = compiler_path,
           compiler_executable = cpp.compiler_executable,
           ld_executable = cpp.ld_executable,
           compiler_options = compiler_options,
           linker_options = linker_options,
-          options = options,
+          options = compiler_options + linker_options,
           c_options = cpp.c_options,
       ),
   )

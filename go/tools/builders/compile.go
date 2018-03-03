@@ -92,15 +92,15 @@ func run(args []string) error {
 	for _, mapping := range importmap {
 		i := strings.Index(mapping, "=")
 		if i < 0 {
-			return fmt.Errorf("Invalid importmap %v", mapping)
+			return fmt.Errorf("Invalid importmap %v: no = separator", mapping)
 		}
-		importmap := mapping[0:i]
-		importpath := mapping[i+1 : len(mapping)]
-		if importmap == "" || importpath == "" {
+		source := mapping[:i]
+		actual := mapping[i+1:]
+		if source == "" || actual == "" || source == actual {
 			continue
 		}
 		goargs = append(goargs, "-importmap", mapping)
-		strictdeps = append(strictdeps, importmap)
+		strictdeps = append(strictdeps, source)
 	}
 	goargs = append(goargs, "-pack", "-o", *output)
 	goargs = append(goargs, flags.Args()...)
@@ -113,12 +113,10 @@ func run(args []string) error {
 		return err
 	}
 
-	env := os.Environ()
-	env = append(env, goenv.Env()...)
 	cmd := exec.Command(goenv.Go, goargs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = env
+	cmd.Env = goenv.Env()
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("error running compiler: %v", err)
 	}

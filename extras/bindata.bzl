@@ -34,6 +34,12 @@ def _bindata_impl(ctx):
     arguments.add("-nocompress")
   if not ctx.attr.metadata:
     arguments.add("-nometadata")
+  if not ctx.attr.memcopy:
+    arguments.add("-nomemcopy")
+  if not ctx.attr.modtime:
+    arguments.add(["-modtime", "0"])
+  if ctx.attr.extra_args:
+    arguments.add(ctx.attr.extra_args)
   arguments.add(ctx.files.srcs)
   ctx.actions.run(
     inputs = ctx.files.srcs,
@@ -58,10 +64,15 @@ bindata = go_rule(
         "package": attr.string(mandatory = True),
         "compress": attr.bool(default = True),
         "metadata": attr.bool(default = False),
+        "memcopy": attr.bool(default = True),
+        "modtime": attr.bool(default = False),
+        "extra_args": attr.string_list(),
         "_bindata": attr.label(
             allow_files = True,
             single_file = True,
-            default = Label("@com_github_jteeuwen_go_bindata//go-bindata:go-bindata"),
+            executable = True,
+            cfg = "host",
+            default = Label("@com_github_kevinburke_go_bindata//go-bindata:go-bindata"),
         ),
     },
 )

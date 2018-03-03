@@ -1,8 +1,8 @@
 Core go rules
 =============
 
-.. _test_filter: https://bazel.build/versions/master/docs/bazel-user-manual.html#flag--test_filter
-.. _test_arg: https://bazel.build/versions/master/docs/bazel-user-manual.html#flag--test_arg
+.. _test_filter: https://docs.bazel.build/versions/master/user-manual.html#flag--test_filter
+.. _test_arg: https://docs.bazel.build/versions/master/user-manual.html#flag--test_arg
 .. _gazelle: tools/gazelle/README.rst
 .. _build constraints: http://golang.org/pkg/go/build/
 .. _GoLibrary: providers.rst#GoLibrary
@@ -13,6 +13,7 @@ Core go rules
 .. _Bourne shell tokenization: https://docs.bazel.build/versions/master/be/common-definitions.html#sh-tokenization
 .. _data dependencies: https://docs.bazel.build/versions/master/build-ref.html#data
 .. _cc library deps: https://docs.bazel.build/versions/master/be/c-cpp.html#cc_library.deps
+.. _shard_count: https://docs.bazel.build/versions/master/be/common-definitions.html#test.shard_count
 .. _pure: modes.rst#pure
 .. _static: modes.rst#static
 .. _goos: modes.rst#goos
@@ -162,9 +163,17 @@ Attributes
 +----------------------------+-----------------------------+---------------------------------------+
 | :param:`importpath`        | :type:`string`              | :value:`""`                           |
 +----------------------------+-----------------------------+---------------------------------------+
-| The import path of this library. If unspecified, the library will have an implicit               |
-| dependency on ``//:go_prefix``, and the import path will be derived from the prefix              |
-| and the library's label.                                                                         |
+| The source import path of this library. Other libraries can import this                          |
+| library using this path. If unspecified, the library will have an implicit                       |
+| dependency on ``//:go_prefix``, and the import path will be derived from the                     |
+| prefix and the library's label.                                                                  |
++----------------------------+-----------------------------+---------------------------------------+
+| :param:`importmap`         | :type:`string`              | :value:`""`                           |
++----------------------------+-----------------------------+---------------------------------------+
+| The actual import path of this library. This is mostly only visible to the                       |
+| compiler and linker, but it may also be seen in stack traces. This may be set                    |
+| to prevent a binary from linking multiple packages with the same import path                     |
+| e.g., from different vendor directories.                                                         |
 +----------------------------+-----------------------------+---------------------------------------+
 | :param:`srcs`              | :type:`label_list`          | :value:`None`                         |
 +----------------------------+-----------------------------+---------------------------------------+
@@ -488,6 +497,15 @@ Attributes
 | behaviour of ``go test`` so it is easy to write compatible tests.                                |
 |                                                                                                  |
 | Setting it to :value:`.` makes the test behave the normal way for a bazel test.                  |
++----------------------------+-----------------------------+---------------------------------------+
+| :param:`shard_count`       | :type:`integer`             | :value:`None`                         |
++----------------------------+-----------------------------+---------------------------------------+
+| Non-negative integer less than or equal to 50, optional.                                         |
+|                                                                                                  |
+| Specifies the number of parallel shards to run the test. Test methods will be split across the   |
+| shards in a round-robin fashion.                                                                 |
+|                                                                                                  |
+| For more details on this attribute, consult the official Bazel documentation for shard_count_.   |
 +----------------------------+-----------------------------+---------------------------------------+
 
 To write an internal test, reference the library being tested with the :param:`embed`

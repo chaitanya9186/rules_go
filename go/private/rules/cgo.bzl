@@ -37,10 +37,30 @@ load(
 
 _CgoCodegen = provider()
 
-def _mangle(src):
-    src_stem, _, src_ext = src.path.rpartition('.')
-    mangled_stem = src_stem.replace('/', '_')
-    return mangled_stem, src_ext
+# Maximum number of characters in stem of base name for mangled cgo files.
+# Some file systems have fairly short limits (eCryptFS has a limit of 143),
+# and this should be kept below those to accomodate number suffixes and
+# extensions.
+MAX_STEM_LENGTH = 130
+
+def _mangle(src, stems):
+  """_mangle returns a file stem and extension for a source file that will
+  be passed to cgo. The stem will be unique among other sources in the same
+  library. It will not contain any separators, so cgo's name mangling algorithm
+  will be a no-op."""
+  stem, _, ext = src.basename.rpartition('.')
+  if len(stem) > MAX_STEM_LENGTH:
+    stem = stem[:MAX_STEM_LENGTH]
+  if stem in stems:
+    for i in range(100):
+      next_stem = "{}_{}".format(stem, i)
+      if next_stem not in stems:
+        break
+    if next_stem in stems:
+      fail("could not find unique mangled name for {}".format(src.path))
+    stem = next_stem
+  stems[stem] = True
+  return stem, ext
 
 def _c_filter_options(options, blacklist):
   return [opt for opt in options
@@ -66,7 +86,7 @@ def _cgo_codegen_impl(ctx):
   if not go.cgo_tools:
     fail("Go toolchain does not support cgo")
   linkopts = ctx.attr.linkopts[:]
-  copts = go.cgo_tools.c_options + ctx.attr.copts
+  copts = go.cgo_tools.c_options + go.cgo_tools.compiler_options + ctx.attr.copts
   deps = depset([], order="topological")
   cgo_export_h = go.declare_file(go, path="_cgo_export.h")
   cgo_export_c = go.declare_file(go, path="_cgo_export.c")
@@ -83,21 +103,22 @@ def _cgo_codegen_impl(ctx):
 
   source = split_srcs(ctx.files.srcs)
   for src in source.headers:
-      copts.extend(['-iquote', src.dirname])
+    copts.extend(['-iquote', src.dirname])
+  stems = {}
   for src in source.go:
-    mangled_stem, src_ext = _mangle(src)
+    mangled_stem, src_ext = _mangle(src, stems)
     gen_file = go.declare_file(go, path=mangled_stem + ".cgo1."+src_ext)
     gen_c_file = go.declare_file(go, path=mangled_stem + ".cgo2.c")
     go_outs.append(gen_file)
     c_outs.append(gen_c_file)
     args.add(["-src", gen_file.path + "=" + src.path])
   for src in source.asm:
-    mangled_stem, src_ext = _mangle(src)
+    mangled_stem, src_ext = _mangle(src, stems)
     gen_file = go.declare_file(go, path=mangled_stem + ".cgo1."+src_ext)
     go_outs.append(gen_file)
     args.add(["-src", gen_file.path + "=" + src.path])
   for src in source.c:
-    mangled_stem, src_ext = _mangle(src)
+    mangled_stem, src_ext = _mangle(src, stems)
     gen_file = go.declare_file(go, path=mangled_stem + ".cgo1."+src_ext)
     c_outs.append(gen_file)
     args.add(["-src", gen_file.path + "=" + src.path])
@@ -122,20 +143,20 @@ def _cgo_codegen_impl(ctx):
         linkopts.append(lib.path)
     linkopts.extend(d.cc.link_flags)
 
+  args.add(linkopts, before_each="-ld_flag")
+
   # The first -- below is to stop the cgo from processing args, the
   # second is an actual arg to forward to the underlying go tool
   args.add(["--", "--"])
   args.add(copts)
   ctx.actions.run(
-      inputs = inputs,
+      inputs = inputs + go.crosstool,
       outputs = c_outs + go_outs + [cgo_main],
       mnemonic = "CGoCodeGen",
       progress_message = "CGoCodeGen %s" % ctx.label,
-      executable = go.toolchain.tools.cgo,
+      executable = go.builders.cgo,
       arguments = [args],
-      env = {
-          "CGO_LDFLAGS": " ".join(linkopts),
-      },
+      env = go.env,
   )
 
   return [
@@ -172,7 +193,7 @@ _cgo_codegen = go_rule(
 
 def _cgo_import_impl(ctx):
   go = go_context(ctx)
-  out = go.declare_file(go, ext=".go")
+  out = go.declare_file(go, path="_cgo_import.go")
   args = go.args(go)
   args.add([
       "-dynout", out,
@@ -185,7 +206,7 @@ def _cgo_import_impl(ctx):
           ctx.files.sample_go_srcs[0],
       ] + go.stdlib.files,
       outputs = [out],
-      executable = go.toolchain.tools.cgo,
+      executable = go.builders.cgo,
       arguments = [args],
       mnemonic = "CGoImportGen",
   )
@@ -331,7 +352,7 @@ def setup_cgo_library(name, srcs, cdeps, copts, clinkopts):
   # into binaries that depend on this cgo_library. It will also be used
   # in _cgo_.o.
   platform_copts = select({
-      "@io_bazel_rules_go//go/platform:darwin_amd64": [],
+      "@io_bazel_rules_go//go/platform:darwin": [],
       "@io_bazel_rules_go//go/platform:windows_amd64": ["-mthreads"],
       "//conditions:default": ["-pthread"],
   })

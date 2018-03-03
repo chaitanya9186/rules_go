@@ -105,7 +105,7 @@ def _go_test_impl(ctx):
       inputs = go_srcs,
       outputs = [main_go],
       mnemonic = "GoTestGenTest",
-      executable = go.toolchain.tools.test_generator,
+      executable = go.builders.test_generator,
       arguments = [arguments],
       env = {
           "RUNDIR" : ctx.label.package,
@@ -117,7 +117,7 @@ def _go_test_impl(ctx):
       name = go._ctx.label.name + "~testmain",
       label = go._ctx.label,
       importpath = "testmain",
-      importmap = None,
+      importmap = "testmain",
       pathtype = EXPORT_PATH,
       resolve = None,
   )

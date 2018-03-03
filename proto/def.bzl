@@ -41,8 +41,8 @@ def get_imports(attr):
   imports = []
   if hasattr(attr, "proto"):
     imports.append(["{}={}".format(proto_path(src), attr.importpath) for src in attr.proto.proto.direct_sources])
-  imports.extend([dep[GoProtoImports].imports for dep in attr.deps])
-  imports.extend([dep[GoProtoImports].imports for dep in attr.embed])
+  imports.extend([dep[GoProtoImports].imports for dep in getattr(attr, "deps", [])])
+  imports.extend([dep[GoProtoImports].imports for dep in getattr(attr, "embed", [])])
   return sets.union(*imports)
 
 def _go_proto_aspect_impl(target, ctx):
@@ -110,6 +110,7 @@ go_proto_library = go_rule(
             aspects = [_go_proto_aspect],
         ),
         "importpath": attr.string(),
+        "importmap": attr.string(),
         "embed": attr.label_list(providers = [GoLibrary]),
         "gc_goopts": attr.string_list(),
         "compiler": attr.label(providers = [GoProtoCompiler]),

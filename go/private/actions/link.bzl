@@ -33,6 +33,8 @@ def emit_link(go,
 
   if archive == None: fail("archive is a required parameter")
   if executable == None: fail("executable is a required parameter")
+  if not go.builders.link:
+    return _bootstrap_link(go, archive, executable, gc_linkopts)
 
   #TODO: There has to be a better way to work out the rpath
   config_strip = len(go._ctx.configuration.bin_dir.path) + 1
@@ -54,7 +56,6 @@ def emit_link(go,
   if go.mode.msan:
     gc_linkopts.append("-msan")
   if go.mode.static:
-    link_external = True
     extldflags.append("-static")
   if go.mode.link != LINKMODE_NORMAL:
     gc_linkopts.extend(["-buildmode", go.mode.link])
@@ -113,21 +114,13 @@ def emit_link(go,
                 go.crosstool, stamp_inputs, go.stdlib.files),
       outputs = [executable],
       mnemonic = "GoLink",
-      executable = go.toolchain.tools.link,
+      executable = go.builders.link,
       arguments = [args],
+      env = go.env,
   )
 
-def bootstrap_link(go,
-    archive = None,
-    executable = None,
-    gc_linkopts = [],
-    linkstamp=None,
-    version_file=None,
-    info_file=None):
+def _bootstrap_link(go, archive, executable, gc_linkopts):
   """See go/toolchains.rst#link for full documentation."""
-
-  if archive == None: fail("archive is a required parameter")
-  if executable == None: fail("executable is a required parameter")
 
   inputs = depset([archive.data.file])
   args = ["tool", "link", "-s", "-o", executable.path]

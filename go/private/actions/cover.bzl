@@ -44,8 +44,9 @@ def emit_cover(go, source):
         inputs = [src] + go.stdlib.files,
         outputs = [out],
         mnemonic = "GoCover",
-        executable = go.toolchain.tools.cover,
+        executable = go.builders.cover,
         arguments = [args],
+        env = go.env,
     )
   members = structs.to_dict(source)
   members["srcs"] = covered
